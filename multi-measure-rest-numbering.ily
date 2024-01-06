@@ -18,6 +18,14 @@
 
 \layout {
   \context {
+    \DrumStaff
+    \consists Measure_counter_engraver
+    \override MeasureCounter.direction = #DOWN
+    \override MeasureCounter.font-encoding = #'latin1
+    \override MeasureCounter.font-features = #'("pnum")
+    \consists #Multi_measure_rest_numbering_engraver
+  }
+  \context {
     \Staff
     \consists Measure_counter_engraver
     \override MeasureCounter.direction = #DOWN
