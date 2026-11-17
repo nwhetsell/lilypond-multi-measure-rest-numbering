@@ -2,43 +2,45 @@
 
 #(define (Multi_measure_rest_numbering_engraver context)
   (let (
+      (end-event #f)
       (left-number #f)
-      (mmrest-end-event #f)
-      (mmrest-event #f)
-      (text-grob #f))
+      (spanner #f)
+      (start-event #f))
 
     (make-engraver
       (listeners
         ((multi-measure-rest-event engraver event)
-          (if mmrest-event
-            (set! mmrest-end-event event)
+          (if start-event
+            (set! end-event event)
           ; else
-            (set! mmrest-event event)))
+            (set! start-event event)))
         ((note-event engraver event)
-          (set! mmrest-end-event event))
+          (set! end-event event))
         ((rest-event engraver event)
-          (set! mmrest-end-event event)))
+          (set! end-event event)))
 
       ((process-music engraver)
-        (when (and mmrest-event (not text-grob))
+        (when (and start-event (not spanner))
           (set! left-number (ly:context-property context 'currentBarNumber))
-          (set! mmrest-end-event #f)
-          (set! text-grob (ly:engraver-make-grob engraver 'TextScript mmrest-event))
-          (ly:grob-set-property! text-grob 'font-features '("pnum"))
-          (ly:grob-set-property! text-grob 'font-size -2)
-          (ly:grob-set-property! text-grob 'outside-staff-horizontal-padding 0.5)
-          (ly:grob-set-property! text-grob 'outside-staff-priority 750)
-          (ly:grob-set-property! text-grob 'padding 0.2))
-        (when (and mmrest-end-event text-grob)
+          (set! end-event #f)
+          (set! spanner (ly:engraver-make-spanner engraver 'MeasureCounter start-event))
+          (ly:grob-set-property! spanner 'direction DOWN)
+          (ly:grob-set-property! spanner 'font-encoding 'latin1)
+          (ly:grob-set-property! spanner 'font-features '("pnum"))
+          (ly:grob-set-property! spanner 'left-number-text (number->string left-number))
+          (ly:spanner-set-bound! spanner LEFT (ly:context-property context 'currentCommandColumn)))
+        (when (and end-event spanner)
           (let ((right-number (- (ly:context-property context 'currentBarNumber) 1)))
             (if (> right-number left-number)
-              (ly:grob-set-property! text-grob 'text (format #f "~d–~d" left-number right-number))
+              (begin
+                (ly:grob-set-property! spanner 'right-number-text (number->string right-number))
+                (ly:spanner-set-bound! spanner RIGHT (ly:context-property context 'currentCommandColumn)))
             ; else
-              (ly:grob-suicide! text-grob)))
+              (ly:grob-suicide! spanner)))
+          (set! end-event #f)
           (set! left-number #f)
-          (set! mmrest-end-event #f)
-          (set! mmrest-event #f)
-          (set! text-grob #f))))))
+          (set! start-event #f)
+          (set! spanner #f))))))
 
 \layout {
   \context {
