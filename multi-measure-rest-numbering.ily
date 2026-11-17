@@ -1,46 +1,136 @@
+% Copyright (C) Nathan Whetsell.
+%
+% This program is free software: you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation, either version 3 of the License, or
+% (at your option) any later version.
+%
+% This program is distributed in the hope that it will be useful,
+% but WITHOUT ANY WARRANTY; without even the implied warranty of
+% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+% GNU General Public License for more details.
+%
+% You should have received a copy of the GNU General Public License
+% along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 \version "2.24.0"
 
+% The Multi_measure_rest_numbering_engraver is essentially LilyPond’s
+% Measure_counter_engraver, defined in
+%
+% https://github.com/lilypond/lilypond/blob/master/scm/scheme-engravers.scm
+%
+% but modified so that it counts all measures and puts counts below
+% multi-measure rests only. The file lilypond/scm/scheme-engravers.scm is
+% licensed under GPL v3 or later, so this engraver uses the same license.
+
 #(define (Multi_measure_rest_numbering_engraver context)
-  (let (
-      (end-event #f)
-      (left-number #f)
-      (spanner #f)
-      (start-event #f))
+  (define (set-counter-text! grob
+                             property
+                             number
+                             alternative-number
+                             measure-pos
+                             context)
+    (let* ((style (ly:context-property context 'alternativeNumberingStyle))
+           (number-alternatives (eq? style 'numbers-with-letters))
+           (final-alt-number (if number-alternatives alternative-number 0))
+           (formatter (ly:context-property context 'barNumberFormatter #f)))
+      (if formatter
+          (ly:grob-set-property! grob
+                                 property
+                                 (formatter number
+                                            measure-pos
+                                            (1- final-alt-number)
+                                            context)))))
+  (let ((count-spanner '())
+        (last-measure-seen 0)
+        (last-alternative-number #f)
+        ;; Acknowledge bar lines and start a new count when there
+        ;; is one.  This is similar to the Bar_number_engraver.
+        (first-time-step #t)
+        (now-is-bar-line #t)
+        (done-in-time-step #f)
+        (first-measure-in-count 1))
 
     (make-engraver
-      (listeners
-        ((multi-measure-rest-event engraver event)
-          (if start-event
-            (set! end-event event)
-          ; else
-            (set! start-event event)))
-        ((note-event engraver event)
-          (set! end-event event))
-        ((rest-event engraver event)
-          (set! end-event event)))
+     (acknowledgers
+      ((bar-line-interface engraver grob source-engraver)
+       (set! now-is-bar-line #t)))
 
-      ((process-music engraver)
-        (when (and start-event (not spanner))
-          (set! left-number (ly:context-property context 'currentBarNumber))
-          (set! end-event #f)
-          (set! spanner (ly:engraver-make-spanner engraver 'MeasureCounter start-event))
-          (ly:grob-set-property! spanner 'direction DOWN)
-          (ly:grob-set-property! spanner 'font-encoding 'latin1)
-          (ly:grob-set-property! spanner 'font-features '("pnum"))
-          (ly:grob-set-property! spanner 'left-number-text (number->string left-number))
-          (ly:spanner-set-bound! spanner LEFT (ly:context-property context 'currentCommandColumn)))
-        (when (and end-event spanner)
-          (let ((right-number (- (ly:context-property context 'currentBarNumber) 1)))
-            (if (> right-number left-number)
+     ((process-acknowledged trans)
+      (when (and now-is-bar-line
+                 (not done-in-time-step))
+        (let ((col (ly:context-property context 'currentCommandColumn))
+              (measure-pos (ly:context-property context 'measurePosition))
+              (current-bar (ly:context-property context 'currentBarNumber)))
+          (set! done-in-time-step #t)
+          ;; Each measure of a count receives a new spanner, which is bounded
+          ;; by the first "command column" of that measure and the following one.
+          (if (or (eq? #t (ly:context-property context 'measureStartNow))
+                  ;; This first-time-step criterion also applies for a Staff
+                  ;; created mid-piece; starting a measure counter mid-measure
+                  ;; is not meaningful anyway.
+                  first-time-step)
               (begin
-                (ly:grob-set-property! spanner 'right-number-text (number->string right-number))
-                (ly:spanner-set-bound! spanner RIGHT (ly:context-property context 'currentCommandColumn)))
-            ; else
-              (ly:grob-suicide! spanner)))
-          (set! end-event #f)
-          (set! left-number #f)
-          (set! start-event #f)
-          (set! spanner #f))))))
+                ;; Finish the previous count-spanner if there is one.
+                (if (ly:grob? count-spanner)
+                    (begin
+                      (ly:spanner-set-bound! count-spanner RIGHT col)
+                      (ly:pointer-group-interface::add-grob count-spanner 'columns col)
+                      (ly:engraver-announce-end-grob trans count-spanner col)
+                      (if (> current-bar (1+ last-measure-seen))
+                          ;; Measure counter spanning over a compressed MM rest.
+                          (let* ((counter (ly:grob-property count-spanner 'count-from))
+                                 (right-number
+                                  (1- (+ counter
+                                         (- current-bar first-measure-in-count)))))
+                            (set-counter-text!
+                             count-spanner
+                             'right-number-text
+                             right-number
+                             ;; Edge case of compressed MM rests in alternatives.
+                             ;; It would be wrong to take the context's
+                             ;; alternativeNumber here, because we are
+                             ;; looking behind at the last measure before
+                             ;; this one.  Actually, a compressed MM rest
+                             ;; is one single time step, so there is no
+                             ;; right time where we could look up the property.
+                             ;; Fortunately, MM rests from different alternatives
+                             ;; cannot be compressed together, so we can just take
+                             ;; the alternative number that was current at the
+                             ;; time of the start of this measure counter.
+                             last-alternative-number
+                             measure-pos
+                             context)
+                            (ly:grob-set-property! count-spanner 'direction DOWN)
+                            (ly:grob-set-property! count-spanner 'font-encoding 'latin1)
+                            (ly:grob-set-property! count-spanner 'font-features '("pnum")))
+                      ; else
+                          (ly:grob-suicide! count-spanner))
+                      (set! count-spanner '())))
+                ;; Begin a count-spanner.
+                (let* ((c (ly:engraver-make-grob trans 'MeasureCounter col))
+                        (counter (ly:grob-property c 'count-from))
+                        (left-number
+                        (+ counter (- current-bar first-measure-in-count)))
+                        (alternative-number
+                        (ly:context-property context 'alternativeNumber 0)))
+                  (ly:spanner-set-bound! c LEFT col)
+                  (ly:pointer-group-interface::add-grob c 'columns col)
+                  (set-counter-text! c
+                                      'left-number-text
+                                      left-number
+                                      alternative-number
+                                      measure-pos
+                                      context)
+                  (set! count-spanner c)
+                  (set! last-alternative-number alternative-number))))
+          (set! last-measure-seen current-bar))))
+
+     ((stop-translation-timestep trans)
+      (set! now-is-bar-line #f)
+      (set! done-in-time-step #f)
+      (set! first-time-step #f)))))
 
 \layout {
   \context {
