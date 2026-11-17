@@ -131,14 +131,3 @@
       (set! now-is-bar-line #f)
       (set! done-in-time-step #f)
       (set! first-time-step #f)))))
-
-\layout {
-  \context {
-    \DrumStaff
-    \consists #Multi_measure_rest_numbering_engraver
-  }
-  \context {
-    \Staff
-    \consists #Multi_measure_rest_numbering_engraver
-  }
-}

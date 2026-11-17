@@ -15,4 +15,8 @@
     \Score
     skipBars = ##t
   }
+  \context {
+    \Staff
+    \consists #Multi_measure_rest_numbering_engraver
+  }
 }

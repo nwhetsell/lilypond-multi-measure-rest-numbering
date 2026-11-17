@@ -23,6 +23,7 @@ lilypond --output=multi-measure-rest-numbering --svg - <<EOS
 }
 \layout {
   \context { \Score skipBars = ##t }
+  \context { \Staff \consists #Multi_measure_rest_numbering_engraver }
 }
 EOS
 ```
