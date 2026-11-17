@@ -15,13 +15,11 @@ lilypond --output=multi-measure-rest-numbering --svg - <<EOS
 }
 \pointAndClickOff
 \relative {
-  \startMeasureCount
   c'4 e g c |
   R1*42
   \mark \default
   R1
   c4 g e c |
-  \stopMeasureCount
 }
 \layout {
   \context { \Score skipBars = ##t }
